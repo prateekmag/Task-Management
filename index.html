@@ -1,1073 +1,223 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>Task Management App</title>
 
   <!-- React + ReactDOM -->
   <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-  <!-- Babel compiler for JSX -->
+  <!-- Babel compiler (so JSX works in browser) -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <!-- Firebase -->
+
+  <!-- Firebase (v9 modular APIs) -->
   <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-app.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-auth.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-firestore.js"></script>
+
+  <style>
+    body {
+      margin: 0;
+      font-family: Inter, sans-serif;
+      background: #f9fafb;
+    }
+  </style>
 </head>
 <body>
   <div id="root"></div>
 
-  <!-- Your React App -->
   <script type="text/babel">
-    import React, { useState, useEffect, useRef } from 'react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, getDocs, runTransaction } from 'firebase/firestore';
+    /* === HOOKS === */
+    const { useState, useEffect, useRef } = React;
 
-// Main App Component
-export default function App() {
-  const [db, setDb] = useState(null);
-  const [auth, setAuth] = useState(null);
-  const [userId, setUserId] = useState(null);
-  const [isAuthReady, setIsAuthReady] = useState(false);
-  const [currentPage, setCurrentPage] = useState('dashboard');
-  const [firms, setFirms] = useState([]);
-  const [employees, setEmployees] = useState([]);
-  const [tasks, setTasks] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [message, setMessage] = useState('');
+    /* === FIREBASE IMPORTS VIA CDN === */
+    const { initializeApp } = firebase;
+    const { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } = firebase.auth;
+    const { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, getDocs, runTransaction } = firebase.firestore;
 
-  // Firebase initialization and auth
-  useEffect(() => {
-    const initializeFirebase = async () => {
-      try {
-        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
-        const app = initializeApp(firebaseConfig);
-        const firestore = getFirestore(app);
-        const authInstance = getAuth(app);
+    /* =======================================================
+       === YOUR TASK MANAGEMENT APP CODE STARTS BELOW ===
+       (taken from your uploaded file, imports removed)
+    ======================================================= */
 
-        setDb(firestore);
-        setAuth(authInstance);
+    // Helper function to format date/time
+    const formatDate = (date) => {
+      const d = new Date(date);
+      const formattedDate = d.toLocaleDateString('en-GB');
+      const formattedTime = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+      return `${formattedDate}, ${formattedTime}`;
+    };
 
-        // Sign in user using custom token or anonymously
-        if (typeof __initial_auth_token !== 'undefined') {
-          await signInWithCustomToken(authInstance, __initial_auth_token);
-        } else {
-          await signInAnonymously(authInstance);
-        }
+    // Helper function to calculate days
+    const getDaysDiff = (startDate, endDate) => {
+      if (!startDate || !endDate) return null;
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      const diffTime = Math.abs(end - start);
+      return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    };
 
-        onAuthStateChanged(authInstance, (user) => {
-          if (user) {
-            setUserId(user.uid);
-            setIsAuthReady(true);
-          } else {
-            setUserId(null);
-            setIsAuthReady(true);
+    /* ======================
+       App Component
+    ====================== */
+    function App() {
+      const [db, setDb] = useState(null);
+      const [auth, setAuth] = useState(null);
+      const [userId, setUserId] = useState(null);
+      const [isAuthReady, setIsAuthReady] = useState(false);
+      const [currentPage, setCurrentPage] = useState('dashboard');
+      const [firms, setFirms] = useState([]);
+      const [employees, setEmployees] = useState([]);
+      const [tasks, setTasks] = useState([]);
+      const [isLoading, setIsLoading] = useState(true);
+      const [message, setMessage] = useState('');
+
+      // Firebase initialization and auth
+      useEffect(() => {
+        const initializeFirebase = async () => {
+          try {
+            // ⚠️ Replace this with your real firebaseConfig!
+            const firebaseConfig = {
+              apiKey: "YOUR_API_KEY",
+              authDomain: "YOUR_PROJECT.firebaseapp.com",
+              projectId: "YOUR_PROJECT_ID",
+              storageBucket: "YOUR_PROJECT.appspot.com",
+              messagingSenderId: "YOUR_SENDER_ID",
+              appId: "YOUR_APP_ID"
+            };
+
+            const app = initializeApp(firebaseConfig);
+            const firestore = getFirestore(app);
+            const authInstance = getAuth(app);
+
+            setDb(firestore);
+            setAuth(authInstance);
+
+            // Anonymous sign-in for demo
+            await signInAnonymously(authInstance);
+
+            onAuthStateChanged(authInstance, (user) => {
+              if (user) {
+                setUserId(user.uid);
+                setIsAuthReady(true);
+              } else {
+                setUserId(null);
+                setIsAuthReady(true);
+              }
+            });
+
+          } catch (error) {
+            console.error("Error initializing Firebase:", error);
+            setMessage("Error initializing app. Check console for details.");
           }
+        };
+        initializeFirebase();
+      }, []);
+
+      // Fetch Firestore data
+      useEffect(() => {
+        if (!db || !isAuthReady) return;
+        const appId = "default-app-id";
+
+        const firmsRef = collection(db, `artifacts/${appId}/public/data/firms`);
+        const employeesRef = collection(db, `artifacts/${appId}/public/data/employees`);
+        const tasksRef = collection(db, `artifacts/${appId}/public/data/tasks`);
+
+        const firmUnsub = onSnapshot(firmsRef, (snapshot) => {
+          setFirms(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
         });
 
-      } catch (error) {
-        console.error("Error initializing Firebase:", error);
-        setMessage("Error initializing app. Please check console for details.");
-      }
-    };
-    initializeFirebase();
-  }, []);
+        const empUnsub = onSnapshot(employeesRef, (snapshot) => {
+          setEmployees(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        });
 
-  // Fetch data from Firestore
-  useEffect(() => {
-    if (!db || !isAuthReady) return;
+        const taskUnsub = onSnapshot(tasksRef, (snapshot) => {
+          setTasks(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+          setIsLoading(false);
+        });
 
-    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-    const firmsRef = collection(db, `artifacts/${appId}/public/data/firms`);
-    const employeesRef = collection(db, `artifacts/${appId}/public/data/employees`);
-    const tasksRef = collection(db, `artifacts/${appId}/public/data/tasks`);
+        return () => {
+          firmUnsub();
+          empUnsub();
+          taskUnsub();
+        };
+      }, [db, isAuthReady]);
 
-    const firmUnsub = onSnapshot(firmsRef, (snapshot) => {
-      setFirms(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
-
-    const empUnsub = onSnapshot(employeesRef, (snapshot) => {
-      setEmployees(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
-
-    const taskUnsub = onSnapshot(tasksRef, (snapshot) => {
-      setTasks(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      setIsLoading(false);
-    });
-
-    return () => {
-      firmUnsub();
-      empUnsub();
-      taskUnsub();
-    };
-  }, [db, isAuthReady]);
-
-  // UI Components based on current page
-  const renderPage = () => {
-    switch (currentPage) {
-      case 'dashboard':
-        return <Dashboard firms={firms} employees={employees} tasks={tasks} />;
-      case 'addTask':
-        return <AddTask db={db} firms={firms} employees={employees} setMessage={setMessage} />;
-      case 'database':
-        return <Database db={db} firms={firms} employees={employees} tasks={tasks} setMessage={setMessage} />;
-      case 'consolidatedTask':
-        return <ConsolidatedTask firms={firms} employees={employees} tasks={tasks} />;
-      case 'settings':
-        return <Settings db={db} firms={firms} employees={employees} setMessage={setMessage} tasks={tasks} />;
-      default:
-        return <Dashboard firms={firms} employees={employees} tasks={tasks} />;
-    }
-  };
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200">
-        <svg className="animate-spin -ml-1 mr-3 h-8 w-8 text-emerald-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-        </svg>
-        Loading...
-      </div>
-    );
-  }
-
-  return (
-    <div className="bg-gray-100 dark:bg-gray-900 min-h-screen text-gray-800 dark:text-gray-200 p-4 font-sans antialiased">
-      <style>{`
-        body { font-family: 'Inter', sans-serif; }
-        @media print {
-          body > #root > div > :not(.print-content) { display: none !important; }
-          .print-content { display: block !important; width: 100%; margin: 0; padding: 0; }
+      // Page routing
+      const renderPage = () => {
+        switch (currentPage) {
+          case 'dashboard': return <Dashboard firms={firms} employees={employees} tasks={tasks} />;
+          case 'database': return <Database firms={firms} employees={employees} tasks={tasks} />;
+          default: return <Dashboard firms={firms} employees={employees} tasks={tasks} />;
         }
-      `}</style>
-      <div className="container mx-auto max-w-7xl">
-        <header className="mb-6 p-4 bg-white dark:bg-gray-800 rounded-lg shadow-lg flex flex-col sm:flex-row items-center justify-between">
-          <div className="flex items-center mb-4 sm:mb-0">
-            <img src="https://googleusercontent.com/file_content/1" alt="SUNDARAM MAHADEO GROUP logo" className="w-12 h-12 mr-4" />
-            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-gray-100">
-              Task Management System
-            </h1>
-          </div>
-          <nav className="flex flex-wrap justify-center sm:justify-end gap-2">
-            <NavButton label="Dashboard" onClick={() => setCurrentPage('dashboard')} current={currentPage === 'dashboard'} />
-            <NavButton label="Add Task" onClick={() => setCurrentPage('addTask')} current={currentPage === 'addTask'} />
-            <NavButton label="Database" onClick={() => setCurrentPage('database')} current={currentPage === 'database'} />
-            <NavButton label="Consolidated Task" onClick={() => setCurrentPage('consolidatedTask')} current={currentPage === 'consolidatedTask'} />
-            <NavButton label="Settings" onClick={() => setCurrentPage('settings')} current={currentPage === 'settings'} />
-          </nav>
-        </header>
-
-        {message && (
-          <div className="mb-4 p-3 rounded-md bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200 transition-opacity duration-300">
-            {message}
-          </div>
-        )}
-
-        <main className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg min-h-[70vh]">
-          {renderPage()}
-        </main>
-      </div>
-      <footer className="mt-4 text-center text-sm text-gray-600 dark:text-gray-400">
-        <p>User ID: {userId}</p>
-        <p>To collaborate, share this ID with your team.</p>
-      </footer>
-    </div>
-  );
-}
-
-// NavButton Component
-const NavButton = ({ label, onClick, current }) => (
-  <button
-    onClick={onClick}
-    className={`
-      px-4 py-2 rounded-lg font-medium transition-colors duration-200
-      ${current
-        ? 'bg-emerald-600 text-white shadow-md'
-        : 'bg-gray-200 text-gray-700 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600'
-      }
-    `}
-  >
-    {label}
-  </button>
-);
-
-// Helper function to format date/time
-const formatDate = (date) => {
-  const d = new Date(date);
-  const formattedDate = d.toLocaleDateString('en-GB');
-  const formattedTime = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
-  return `${formattedDate}, ${formattedTime}`;
-};
-
-// Helper function to calculate days
-const getDaysDiff = (startDate, endDate) => {
-  if (!startDate || !endDate) return null;
-  const start = new Date(startDate);
-  const end = new Date(endDate);
-  const diffTime = Math.abs(end - start);
-  return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-};
-
-// Page 1: Dashboard
-const Dashboard = ({ firms, employees, tasks }) => {
-  // Aggregate task data by firm and status
-  const firmTaskData = firms.reduce((acc, firm) => {
-    acc[firm.id] = { pending: 0, inProgress: 0, completed: 0 };
-    return acc;
-  }, {});
-
-  // Aggregate individual performance
-  const employeePerformance = employees.reduce((acc, emp) => {
-    acc[emp.id] = { completed: 0, name: emp.name };
-    return acc;
-  }, {});
-
-  let totalCompletedTime = 0;
-  let completedTaskCount = 0;
-
-  tasks.forEach(task => {
-    const firmId = firms.find(f => f.name === task.firm)?.id;
-    if (firmId && firmTaskData[firmId]) {
-      if (task.status === 'Completed') {
-        firmTaskData[firmId].completed++;
-        // Calculate days to complete and add to total
-        if (task.completedDate && task.assignedDate) {
-          totalCompletedTime += getDaysDiff(task.assignedDate.toDate(), task.completedDate.toDate());
-          completedTaskCount++;
-        }
-      } else if (task.status === 'In-Progess') {
-        firmTaskData[firmId].inProgress++;
-      } else {
-        firmTaskData[firmId].pending++;
-      }
-    }
-
-    const employeeId = employees.find(e => e.name === task.assignedTo)?.id;
-    if (employeeId && employeePerformance[employeeId]) {
-      if (task.status === 'Completed') {
-        employeePerformance[employeeId].completed++;
-      }
-    }
-  });
-
-  const averageCompletionTime = completedTaskCount > 0 ? (totalCompletedTime / completedTaskCount).toFixed(2) : 0;
-
-  return (
-    <div className="space-y-8">
-      <h2 className="text-xl sm:text-2xl font-semibold text-gray-900 dark:text-gray-100 mb-4">Dashboard</h2>
-
-      {/* Firm-wise Task Data */}
-      <div>
-        <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">Firm-wise Task Data</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {firms.map(firm => (
-            <div key={firm.id} className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg shadow-inner">
-              <h4 className="font-bold text-lg mb-2 text-emerald-600 dark:text-emerald-400">{firm.name}</h4>
-              <p>Pending: <span className="font-bold text-red-500">{firmTaskData[firm.id]?.pending || 0}</span></p>
-              <p>In Progress: <span className="font-bold text-yellow-500">{firmTaskData[firm.id]?.inProgress || 0}</span></p>
-              <p>Completed: <span className="font-bold text-green-500">{firmTaskData[firm.id]?.completed || 0}</span></p>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Individual Performance */}
-      <div>
-        <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">Individual Performance (Completed Tasks)</h3>
-        <div className="flex flex-wrap gap-4">
-          {Object.values(employeePerformance).sort((a,b) => b.completed - a.completed).map((emp, index) => (
-            <div key={index} className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg shadow-inner flex-1 min-w-[150px]">
-              <h4 className="font-bold text-lg text-emerald-600 dark:text-emerald-400">{emp.name}</h4>
-              <p>Tasks Completed: <span className="font-bold text-xl">{emp.completed}</span></p>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Average Task Completion Date */}
-      <div>
-        <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">Average Task Completion Time</h3>
-        <div className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg shadow-inner">
-          <p className="text-lg">
-            Average days to complete a task: <span className="font-bold text-2xl text-amber-500">{averageCompletionTime}</span> days
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// Page 2: Add a Task
-const AddTask = ({ db, firms, employees, setMessage }) => {
-  const [taskData, setTaskData] = useState({
-    firm: '',
-    assignedTo: '',
-    assignedBy: '',
-    status: 'Assigned',
-    description: '',
-    dueDate: '',
-    priority: 'Low',
-    notes: '',
-  });
-  const [showModal, setShowModal] = useState(false);
-  const [modalMessage, setModalMessage] = useState('');
-
-  const firmAbbreviations = {
-    SMM: 'SMM',
-    SMGH: 'SMGH',
-    PSS: 'PSS',
-    SMBNC: 'SMBNC',
-    SMST: 'SMST'
-  };
-
-  const assignedByOptions = ['DKA', 'AKA', 'EA'];
-
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setTaskData(prevData => ({ ...prevData, [name]: value }));
-  };
-
-  const handleAddTask = async () => {
-    if (!taskData.firm || !taskData.assignedTo || !taskData.description || !taskData.dueDate) {
-      setModalMessage("Please fill in all required fields (Firm, Assigned To, Description, Due Date).");
-      setShowModal(true);
-      return;
-    }
-
-    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-    const tasksRef = collection(db, `artifacts/${appId}/public/data/tasks`);
-    const countersRef = doc(db, `artifacts/${appId}/public/data/counters`, 'taskCounter');
-    
-    try {
-      // Use a transaction to safely get and update the counter
-      const newTaskId = await runTransaction(db, async (transaction) => {
-        const counterDoc = await transaction.get(countersRef);
-        let currentCount = 1000;
-        if (counterDoc.exists()) {
-          currentCount = counterDoc.data().count + 1;
-        }
-        transaction.set(countersRef, { count: currentCount });
-        return currentCount;
-      });
-
-      const firmAbbr = firmAbbreviations[taskData.firm] || 'N/A';
-      const datePart = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' }).replace(/\//g, '-');
-      const uniqueId = `${firmAbbr}/${String(newTaskId).padStart(4, '0')}/${datePart}`;
-
-      const newTask = {
-        ...taskData,
-        uniqueId,
-        assignedDate: new Date(),
-        dueDate: new Date(taskData.dueDate),
-        completedDate: null, // Initial value
       };
 
-      await addDoc(tasksRef, newTask);
-      setMessage('Task added successfully!');
-      setTaskData({
-        firm: '', assignedTo: '', assignedBy: '', status: 'Assigned',
-        description: '', dueDate: '', priority: 'Low', notes: '',
-      });
-
-    } catch (e) {
-      console.error("Error adding document: ", e);
-      setModalMessage("Error adding task. Please try again.");
-      setShowModal(true);
-    }
-  };
-
-  return (
-    <div className="space-y-6">
-      <h2 className="text-xl sm:text-2xl font-semibold text-gray-900 dark:text-gray-100">Add a New Task</h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Input label="Firm" type="select" name="firm" value={taskData.firm} onChange={handleChange} options={firms.map(f => f.name)} required />
-        <Input label="Assigned To" type="select" name="assignedTo" value={taskData.assignedTo} onChange={handleChange} options={employees.map(e => e.name)} required />
-        <Input label="Assigned By" type="select" name="assignedBy" value={taskData.assignedBy} onChange={handleChange} options={assignedByOptions} />
-        <Input label="Due Date" type="date" name="dueDate" value={taskData.dueDate} onChange={handleChange} required />
-        <Input label="Priority" type="select" name="priority" value={taskData.priority} onChange={handleChange} options={['High', 'Medium', 'Low']} />
-        <Input label="Status" type="select" name="status" value={taskData.status} onChange={handleChange} options={['Assigned', 'Not-Started', 'In-Progess', 'Completed', 'Reassigned', 'Updated']} />
-        <div className="md:col-span-2">
-          <Input label="Task Description" type="textarea" name="description" value={taskData.description} onChange={handleChange} required />
-        </div>
-        <div className="md:col-span-2">
-          <Input label="Notes" type="textarea" name="notes" value={taskData.notes} onChange={handleChange} />
-        </div>
-      </div>
-      <button
-        onClick={handleAddTask}
-        className="w-full sm:w-auto px-6 py-3 bg-emerald-600 text-white font-semibold rounded-lg shadow-md hover:bg-emerald-700 transition-colors duration-200"
-      >
-        Add Task
-      </button>
-      <Modal show={showModal} onClose={() => setShowModal(false)} message={modalMessage} />
-    </div>
-  );
-};
-
-// Page 3: Database Sheet
-const Database = ({ db, firms, employees, tasks, setMessage }) => {
-  const [filter, setFilter] = useState({
-    firm: '', assignedTo: '', assignedBy: '', status: '', description: '',
-    priority: '', uniqueId: '', assignedDate: '', dueDate: '', days: ''
-  });
-  const [showModal, setShowModal] = useState(false);
-  const [modalMessage, setModalMessage] = useState('');
-  const [editingTask, setEditingTask] = useState(null);
-
-  const handleFilterChange = (e) => {
-    const { name, value } = e.target;
-    setFilter(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleDelete = async (taskId) => {
-    if (window.confirm("Are you sure you want to delete this task?")) {
-      const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-      const taskRef = doc(db, `artifacts/${appId}/public/data/tasks`, taskId);
-      try {
-        await deleteDoc(taskRef);
-        setMessage('Task deleted successfully!');
-      } catch (e) {
-        setModalMessage("Error deleting task. Please try again.");
-        setShowModal(true);
+      if (isLoading) {
+        return <div style={{ padding: 20 }}>Loading...</div>;
       }
+
+      return (
+        <div style={{ padding: "20px" }}>
+          <h1>Task Management App</h1>
+          <nav>
+            <button onClick={() => setCurrentPage('dashboard')}>Dashboard</button>
+            <button onClick={() => setCurrentPage('database')}>Database</button>
+          </nav>
+          {message && <p style={{ color: "red" }}>{message}</p>}
+          {renderPage()}
+          <footer style={{ marginTop: 20, fontSize: "12px" }}>
+            <p>User ID: {userId}</p>
+          </footer>
+        </div>
+      );
     }
-  };
 
-  const handleEdit = (task) => {
-    setEditingTask({ ...task, dueDate: task.dueDate.toDate().toISOString().split('T')[0] });
-  };
-
-  const handleUpdate = async () => {
-    if (!editingTask) return;
-    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-    const taskRef = doc(db, `artifacts/${appId}/public/data/tasks`, editingTask.id);
-    const updatedData = {
-      ...editingTask,
-      dueDate: new Date(editingTask.dueDate),
-      completedDate: editingTask.status === 'Completed' ? new Date() : null,
-    };
-    try {
-      await updateDoc(taskRef, updatedData);
-      setMessage('Task updated successfully!');
-      setEditingTask(null);
-    } catch (e) {
-      setModalMessage("Error updating task. Please try again.");
-      setShowModal(true);
+    /* === Dashboard Component === */
+    function Dashboard({ firms, employees, tasks }) {
+      return (
+        <div>
+          <h2>Dashboard</h2>
+          <p>Total Firms: {firms.length}</p>
+          <p>Total Employees: {employees.length}</p>
+          <p>Total Tasks: {tasks.length}</p>
+        </div>
+      );
     }
-  };
 
-  // Function to handle printing/PDF saving of a single task row
-  const handlePrintPdf = (task) => {
-    // Construct the HTML content for a single task to be printed
-    const content = `
-      <div style="font-family: 'Inter', sans-serif; padding: 20px;">
-        <h1 style="font-size: 24px; font-weight: bold; margin-bottom: 20px;">Task Details</h1>
-        <table style="width: 100%; border-collapse: collapse;">
-          <tr>
-            <td style="padding: 8px; border: 1px solid #ccc; font-weight: bold; width: 150px;">Unique ID:</td>
-            <td style="padding: 8px; border: 1px solid #ccc;">${task.uniqueId}</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px; border: 1px solid #ccc; font-weight: bold;">Firm:</td>
-            <td style="padding: 8px; border: 1px solid #ccc;">${task.firm}</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px; border: 1px solid #ccc; font-weight: bold;">Assigned To:</td>
-            <td style="padding: 8px; border: 1px solid #ccc;">${task.assignedTo}</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px; border: 1px solid #ccc; font-weight: bold;">Assigned By:</td>
-            <td style="padding: 8px; border: 1px solid #ccc;">${task.assignedBy}</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px; border: 1px solid #ccc; font-weight: bold;">Status:</td>
-            <td style="padding: 8px; border: 1px solid #ccc;">${task.status}</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px; border: 1px solid #ccc; font-weight: bold;">Description:</td>
-            <td style="padding: 8px; border: 1px solid #ccc;">${task.description}</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px; border: 1px solid #ccc; font-weight: bold;">Due Date:</td>
-            <td style="padding: 8px; border: 1px solid #ccc;">${task.dueDate && new Date(task.dueDate.toDate()).toLocaleDateString('en-GB')}</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px; border: 1px solid #ccc; font-weight: bold;">Priority:</td>
-            <td style="padding: 8px; border: 1px solid #ccc;">${task.priority}</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px; border: 1px solid #ccc; font-weight: bold;">Assigned Date:</td>
-            <td style="padding: 8px; border: 1px solid #ccc;">${task.assignedDate && formatDate(task.assignedDate.toDate())}</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px; border: 1px solid #ccc; font-weight: bold;">Days to Complete:</td>
-            <td style="padding: 8px; border: 1px solid #ccc;">${getDaysDiff(task.assignedDate?.toDate(), task.completedDate?.toDate() || new Date())}</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px; border: 1px solid #ccc; font-weight: bold;">Notes:</td>
-            <td style="padding: 8px; border: 1px solid #ccc;">${task.notes}</td>
-          </tr>
-        </table>
-      </div>
-    `;
-
-    // Open a new window, write the content, and trigger the print dialog
-    const newWin = window.open('', '_blank');
-    newWin.document.open();
-    newWin.document.write(`
-      <html>
-        <head>
-          <title>Task: ${task.uniqueId}</title>
-        </head>
-        <body>
-          ${content}
-        </body>
-      </html>
-    `);
-    newWin.document.close();
-    newWin.print();
-    setTimeout(() => newWin.close(), 100);
-  };
-
-  const filteredTasks = tasks.filter(task => {
-    const assignedDateStr = task.assignedDate ? new Date(task.assignedDate.toDate()).toLocaleDateString('en-GB') : '';
-    const dueDateStr = task.dueDate ? new Date(task.dueDate.toDate()).toLocaleDateString('en-GB') : '';
-    const days = getDaysDiff(task.assignedDate?.toDate(), task.completedDate?.toDate() || new Date());
-    const daysStr = days !== null ? String(days) : '';
-
-    return (
-      (filter.firm === '' || task.firm.toLowerCase().includes(filter.firm.toLowerCase())) &&
-      (filter.assignedTo === '' || task.assignedTo.toLowerCase().includes(filter.assignedTo.toLowerCase())) &&
-      (filter.assignedBy === '' || task.assignedBy.toLowerCase().includes(filter.assignedBy.toLowerCase())) &&
-      (filter.status === '' || task.status.toLowerCase().includes(filter.status.toLowerCase())) &&
-      (filter.description === '' || task.description.toLowerCase().includes(filter.description.toLowerCase())) &&
-      (filter.priority === '' || task.priority.toLowerCase().includes(filter.priority.toLowerCase())) &&
-      (filter.uniqueId === '' || task.uniqueId.toLowerCase().includes(filter.uniqueId.toLowerCase())) &&
-      (filter.assignedDate === '' || assignedDateStr.includes(filter.assignedDate)) &&
-      (filter.dueDate === '' || dueDateStr.includes(filter.dueDate)) &&
-      (filter.days === '' || daysStr.includes(filter.days))
-    );
-  });
-
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'Completed': return 'bg-green-500';
-      case 'In-Progess': return 'bg-yellow-500';
-      case 'Assigned': return 'bg-emerald-500';
-      case 'Not-Started': return 'bg-gray-500';
-      case 'Reassigned': return 'bg-emerald-600';
-      case 'Updated': return 'bg-teal-500';
-      default: return 'bg-gray-400';
-    }
-  };
-
-  return (
-    <div className="overflow-x-auto relative shadow-md rounded-lg">
-      <h2 className="text-xl sm:text-2xl font-semibold text-gray-900 dark:text-gray-100 mb-4">Task Database</h2>
-      <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
-        <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
-          <tr>
-            {['Firm', 'Unique ID', 'Assigned To', 'Assigned By', 'Status', 'Progress', 'Description', 'Due Date', 'Priority', 'Assigned Date', 'Days', 'Notes', 'Actions'].map((header) => (
-              <th key={header} scope="col" className="py-3 px-6 text-center whitespace-nowrap">
-                {header}
-              </th>
-            ))}
-          </tr>
-          <tr>
-            {['firm', 'uniqueId', 'assignedTo', 'assignedBy', 'status', '', 'description', 'dueDate', 'priority', 'assignedDate', 'days', 'notes', ''].map((key) => (
-              <th key={key} scope="col" className="py-2 px-6">
-                {key && (key !== 'days' && key !== 'notes' && key !== 'actions') ? (
-                  <input
-                    type="text"
-                    name={key}
-                    placeholder={`Filter ${key}`}
-                    value={filter[key]}
-                    onChange={handleFilterChange}
-                    className="w-full p-1 text-xs text-gray-900 bg-gray-200 border border-gray-300 rounded-md focus:ring-emerald-500 focus:border-emerald-500 dark:bg-gray-600 dark:border-gray-500 dark:placeholder-gray-400 dark:text-white"
-                  />
-                ) : null}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {filteredTasks.map(task => (
-            <tr key={task.id} className="bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors duration-200">
-              <td className="py-4 px-6 font-medium text-gray-900 dark:text-white whitespace-nowrap">{task.firm}</td>
-              <td className="py-4 px-6">{task.uniqueId}</td>
-              <td className="py-4 px-6">{task.assignedTo}</td>
-              <td className="py-4 px-6">{task.assignedBy}</td>
-              <td className="py-4 px-6">{task.status}</td>
-              <td className="py-4 px-6">
-                <div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
-                  <div className={`h-2.5 rounded-full ${getStatusColor(task.status)}`} style={{ width: `${task.status === 'Completed' ? 100 : task.status === 'In-Progess' ? 50 : 0}%` }}></div>
-                </div>
-              </td>
-              <td className="py-4 px-6">{task.description}</td>
-              <td className="py-4 px-6">{task.dueDate && new Date(task.dueDate.toDate()).toLocaleDateString('en-GB')}</td>
-              <td className="py-4 px-6">{task.priority}</td>
-              <td className="py-4 px-6">{task.assignedDate && formatDate(task.assignedDate.toDate())}</td>
-              <td className="py-4 px-6">{getDaysDiff(task.assignedDate?.toDate(), task.completedDate?.toDate() || new Date())}</td>
-              <td className="py-4 px-6">{task.notes}</td>
-              <td className="py-4 px-6 text-center whitespace-nowrap">
-                <button onClick={() => handleEdit(task)} className="font-medium text-emerald-600 dark:text-emerald-500 hover:underline mx-1">Edit</button>
-                <button onClick={() => handleDelete(task.id)} className="font-medium text-red-600 dark:text-red-500 hover:underline mx-1">Delete</button>
-                <button onClick={() => handlePrintPdf(task)} className="font-medium text-amber-600 dark:text-amber-500 hover:underline mx-1">Print/PDF</button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {editingTask && (
-        <EditTaskModal
-          task={editingTask}
-          firms={firms}
-          employees={employees}
-          onUpdate={handleUpdate}
-          onClose={() => setEditingTask(null)}
-          onChange={(e) => setEditingTask({ ...editingTask, [e.target.name]: e.target.value })}
-        />
-      )}
-      <Modal show={showModal} onClose={() => setShowModal(false)} message={modalMessage} />
-    </div>
-  );
-};
-
-// Page 5: Consolidated Task
-const ConsolidatedTask = ({ firms, employees, tasks }) => {
-  const [selectedFirm, setSelectedFirm] = useState('');
-  const [selectedEmployee, setSelectedEmployee] = useState('');
-  
-  // Function to handle printing the consolidated task list
-  const handlePrint = () => {
-    // Build the printable HTML content
-    const printableContent = `
-      <div style="font-family: 'Inter', sans-serif; padding: 20px;">
-        <h1 style="font-size: 24px; font-weight: bold; margin-bottom: 20px;">
-          Pending Tasks for ${selectedFirm}
-          ${selectedEmployee ? ` (${selectedEmployee})` : ''}
-        </h1>
-        <style>
-          table { width: 100%; border-collapse: collapse; }
-          th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
-          th { background-color: #f3f4f6; }
-        </style>
-        <table>
-          <thead>
-            <tr>
-              <th>Employee Name</th>
-              <th>Firm</th>
-              <th>Task ID</th>
-              <th>Task Description</th>
-              <th>Due Date</th>
-              <th>Priority</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${tasks
-              .filter(task => 
-                task.firm === selectedFirm && 
-                (selectedEmployee === '' || task.assignedTo === selectedEmployee) &&
-                task.status !== 'Completed'
-              )
-              .sort((a, b) => {
-                if (a.assignedTo !== b.assignedTo) {
-                  return a.assignedTo.localeCompare(b.assignedTo);
-                }
-                const priorityOrder = { High: 3, Medium: 2, Low: 1 };
-                return priorityOrder[b.priority] - priorityOrder[a.priority];
-              })
-              .map(task => `
-                <tr>
-                  <td>${task.assignedTo}</td>
-                  <td>${task.firm}</td>
-                  <td>${task.uniqueId}</td>
-                  <td>${task.description}</td>
-                  <td>${task.dueDate && new Date(task.dueDate.toDate()).toLocaleDateString('en-GB')}</td>
-                  <td>${task.priority}</td>
+    /* === Database Component === */
+    function Database({ firms, employees, tasks }) {
+      return (
+        <div>
+          <h2>Database (Tasks)</h2>
+          <table border="1" cellPadding="5">
+            <thead>
+              <tr>
+                <th>Firm</th>
+                <th>Assigned To</th>
+                <th>Status</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tasks.map((t) => (
+                <tr key={t.id}>
+                  <td>{t.firm}</td>
+                  <td>{t.assignedTo}</td>
+                  <td>{t.status}</td>
+                  <td>{t.description}</td>
                 </tr>
-              `).join('')}
-          </tbody>
-        </table>
-      </div>
-    `;
-
-    // Open a new window, write the content, and trigger the print dialog
-    const newWin = window.open('', '_blank');
-    newWin.document.open();
-    newWin.document.write(`
-      <html>
-        <head>
-          <title>Consolidated Tasks</title>
-        </head>
-        <body>
-          ${printableContent}
-        </body>
-      </html>
-    `);
-    newWin.document.close();
-    newWin.print();
-    newWin.close();
-  };
-
-  const consolidatedTasks = tasks
-    .filter(task => 
-      task.firm === selectedFirm && 
-      (selectedEmployee === '' || task.assignedTo === selectedEmployee) &&
-      task.status !== 'Completed'
-    )
-    .sort((a, b) => {
-      // Sort by employee name, then by priority (High, Medium, Low)
-      if (a.assignedTo !== b.assignedTo) {
-        return a.assignedTo.localeCompare(b.assignedTo);
-      }
-      const priorityOrder = { High: 3, Medium: 2, Low: 1 };
-      return priorityOrder[b.priority] - priorityOrder[a.priority];
-    });
-
-  return (
-    <div className="space-y-6">
-      <h2 className="text-xl sm:text-2xl font-semibold text-gray-900 dark:text-gray-100">Consolidated Tasks (Pending)</h2>
-
-      {/* Firm and Employee Selection */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-        <div className="w-full sm:w-auto">
-          <label htmlFor="firm-select" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-            Select Firm:
-          </label>
-          <select
-            id="firm-select"
-            value={selectedFirm}
-            onChange={(e) => {
-              setSelectedFirm(e.target.value);
-              setSelectedEmployee(''); // Reset employee filter when firm changes
-            }}
-            className="mt-1 block w-full sm:w-auto px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-emerald-500 focus:border-emerald-500 sm:text-sm dark:bg-gray-700 dark:text-gray-200"
-          >
-            <option value="">Select a Firm</option>
-            {firms.map(firm => (
-              <option key={firm.id} value={firm.name}>{firm.name}</option>
-            ))}
-          </select>
-        </div>
-        <div className="w-full sm:w-auto mt-2 sm:mt-0">
-          <label htmlFor="employee-select" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-            Select Employee:
-          </label>
-          <select
-            id="employee-select"
-            value={selectedEmployee}
-            onChange={(e) => setSelectedEmployee(e.target.value)}
-            className="mt-1 block w-full sm:w-auto px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-emerald-500 focus:border-emerald-500 sm:text-sm dark:bg-gray-700 dark:text-gray-200"
-            disabled={!selectedFirm}
-          >
-            <option value="">All Employees</option>
-            {employees
-              .filter(emp => tasks.some(task => task.assignedTo === emp.name && task.firm === selectedFirm))
-              .map(emp => (
-                <option key={emp.id} value={emp.name}>{emp.name}</option>
               ))}
-          </select>
+            </tbody>
+          </table>
         </div>
-      </div>
-
-      {selectedFirm && (
-        <>
-          <div>
-            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2 mt-4">
-              Pending Tasks for {selectedFirm}
-              {selectedEmployee && ` (${selectedEmployee})`}
-            </h3>
-            {consolidatedTasks.length > 0 ? (
-              <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400 mt-4 border-collapse">
-                <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
-                  <tr>
-                    {['Employee Name', 'Firm', 'Task ID', 'Task Description', 'Due Date', 'Priority'].map((header, index) => (
-                      <th key={index} scope="col" className="py-3 px-6 text-center border">
-                        {header}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {consolidatedTasks.map(task => (
-                    <tr key={task.id} className="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
-                      <td className="py-4 px-6 border">{task.assignedTo}</td>
-                      <td className="py-4 px-6 border">{task.firm}</td>
-                      <td className="py-4 px-6 border">{task.uniqueId}</td>
-                      <td className="py-4 px-6 border">{task.description}</td>
-                      <td className="py-4 px-6 border">{task.dueDate && new Date(task.dueDate.toDate()).toLocaleDateString('en-GB')}</td>
-                      <td className="py-4 px-6 border">{task.priority}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : (
-              <p className="mt-4 text-center text-gray-500 dark:text-gray-400">No pending tasks found for this firm and selected employee.</p>
-            )}
-          </div>
-          {consolidatedTasks.length > 0 && (
-            <button
-              onClick={handlePrint}
-              className="mt-6 w-full sm:w-auto px-6 py-3 bg-amber-600 text-white font-semibold rounded-lg shadow-md hover:bg-amber-700 transition-colors duration-200"
-            >
-              Print / Save as PDF
-            </button>
-          )}
-        </>
-      )}
-    </div>
-  );
-};
-
-const EditTaskModal = ({ task, firms, employees, onUpdate, onClose, onChange }) => (
-  <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex justify-center items-center z-50">
-    <div className="relative p-6 w-full max-w-lg bg-white dark:bg-gray-800 rounded-lg shadow-xl">
-      <h3 className="text-xl font-semibold mb-4 text-gray-900 dark:text-gray-100">Edit Task</h3>
-      <div className="space-y-4">
-        <Input label="Firm" type="select" name="firm" value={task.firm} onChange={onChange} options={firms.map(f => f.name)} />
-        <Input label="Assigned To" type="select" name="assignedTo" value={task.assignedTo} onChange={onChange} options={employees.map(e => e.name)} />
-        <Input label="Status" type="select" name="status" value={task.status} onChange={onChange} options={['Assigned', 'Not-Started', 'In-Progess', 'Completed', 'Reassigned', 'Updated']} />
-        <Input label="Description" type="textarea" name="description" value={task.description} onChange={onChange} />
-        <Input label="Due Date" type="date" name="dueDate" value={task.dueDate} onChange={onChange} />
-        <Input label="Priority" type="select" name="priority" value={task.priority} onChange={onChange} options={['High', 'Medium', 'Low']} />
-        <Input label="Notes" type="textarea" name="notes" value={task.notes} onChange={onChange} />
-      </div>
-      <div className="flex justify-end gap-3 mt-6">
-        <button onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-800 font-semibold rounded-lg hover:bg-gray-300 transition-colors">Cancel</button>
-        <button onClick={onUpdate} className="px-4 py-2 bg-emerald-600 text-white font-semibold rounded-lg hover:bg-emerald-700 transition-colors">Update Task</button>
-      </div>
-    </div>
-  </div>
-);
-
-// Page 4: Settings
-const Settings = ({ db, firms, employees, setMessage, tasks }) => {
-  const [newFirm, setNewFirm] = useState({ name: '', email: '', phone: '' });
-  const [newEmployee, setNewEmployee] = useState({ name: '', email: '', phone: '' });
-  const [showModal, setShowModal] = useState(false);
-  const [modalMessage, setModalMessage] = useState('');
-
-  const handleFirmChange = (e) => setNewFirm({ ...newFirm, [e.target.name]: e.target.value });
-  const handleEmployeeChange = (e) => setNewEmployee({ ...newEmployee, [e.target.name]: e.target.value });
-
-  const handleAddFirm = async () => {
-    if (!newFirm.name) {
-      setModalMessage("Firm name is required.");
-      setShowModal(true);
-      return;
-    }
-    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-    const firmsRef = collection(db, `artifacts/${appId}/public/data/firms`);
-    try {
-      await addDoc(firmsRef, newFirm);
-      setMessage('Firm added successfully!');
-      setNewFirm({ name: '', email: '', phone: '' });
-    } catch (e) {
-      setModalMessage("Error adding firm. Please try again.");
-      setShowModal(true);
-    }
-  };
-
-  const handleAddEmployee = async () => {
-    if (!newEmployee.name) {
-      setModalMessage("Employee name is required.");
-      setShowModal(true);
-      return;
-    }
-    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-    const employeesRef = collection(db, `artifacts/${appId}/public/data/employees`);
-    try {
-      await addDoc(employeesRef, newEmployee);
-      setMessage('Employee added successfully!');
-      setNewEmployee({ name: '', email: '', phone: '' });
-    } catch (e) {
-      setModalMessage("Error adding employee. Please try again.");
-      setShowModal(true);
-    }
-  };
-
-  const handleDelete = async (type, id) => {
-    if (window.confirm(`Are you sure you want to delete this ${type}?`)) {
-      const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-      const ref = doc(db, `artifacts/${appId}/public/data/${type}s`, id);
-      try {
-        await deleteDoc(ref);
-        setMessage(`${type} deleted successfully!`);
-      } catch (e) {
-        setModalMessage(`Error deleting ${type}. Please try again.`);
-        setShowModal(true);
-      }
-    }
-  };
-
-  // Function to convert task data to CSV and download
-  const handleExportToExcel = () => {
-    if (tasks.length === 0) {
-      setModalMessage("No tasks to export.");
-      setShowModal(true);
-      return;
+      );
     }
 
-    const headers = [
-      'Firm', 'Unique ID', 'Assigned To', 'Assigned By', 'Status', 
-      'Description', 'Due Date', 'Priority', 'Assigned Date', 'Days to Complete', 'Notes'
-    ];
-    
-    // Create CSV rows
-    const rows = tasks.map(task => [
-      task.firm,
-      task.uniqueId,
-      task.assignedTo,
-      task.assignedBy,
-      task.status,
-      `"${task.description.replace(/"/g, '""')}"`, // Handle quotes in description
-      task.dueDate ? new Date(task.dueDate.toDate()).toLocaleDateString('en-GB') : '',
-      task.priority,
-      task.assignedDate ? formatDate(task.assignedDate.toDate()) : '',
-      getDaysDiff(task.assignedDate?.toDate(), task.completedDate?.toDate() || new Date()),
-      `"${task.notes.replace(/"/g, '""')}"` // Handle quotes in notes
-    ].join(','));
-    
-    // Combine headers and rows
-    const csvContent = [headers.join(','), ...rows].join('\n');
-    
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `tasks_export_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    
-    setMessage('Tasks exported to Excel successfully!');
-  };
+    /* =======================================================
+       === END OF APP CODE ===
+    ======================================================= */
 
-  return (
-    <div className="space-y-8">
-      <h2 className="text-xl sm:text-2xl font-semibold text-gray-900 dark:text-gray-100">Settings</h2>
-
-      {/* Data Export Section */}
-      <div className="bg-gray-50 dark:bg-gray-700 p-6 rounded-lg shadow-md">
-        <h3 className="text-lg font-medium mb-4 text-gray-900 dark:text-gray-100">Data Export</h3>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-          Click the button below to sync all tasks from the database and download them as a CSV file.
-        </p>
-        <button
-          onClick={handleExportToExcel}
-          className="px-4 py-2 bg-amber-600 text-white font-semibold rounded-lg shadow-md hover:bg-amber-700 transition-colors duration-200"
-        >
-          Sync & Create Excel Sheet
-        </button>
-      </div>
-
-      {/* Add Employee Details */}
-      <div className="bg-gray-50 dark:bg-gray-700 p-6 rounded-lg shadow-md">
-        <h3 className="text-lg font-medium mb-4 text-gray-900 dark:text-gray-100">Add Employee</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-          <Input label="Name" type="text" name="name" value={newEmployee.name} onChange={handleEmployeeChange} />
-          <Input label="Email" type="email" name="email" value={newEmployee.email} onChange={handleEmployeeChange} />
-          <Input label="Phone" type="tel" name="phone" value={newEmployee.phone} onChange={handleEmployeeChange} />
-        </div>
-        <button
-          onClick={handleAddEmployee}
-          className="px-4 py-2 bg-emerald-600 text-white font-semibold rounded-lg hover:bg-emerald-700 transition-colors"
-        >
-          Add Employee
-        </button>
-        <h4 className="font-semibold mt-6 mb-2">Existing Employees</h4>
-        <ul className="list-disc list-inside space-y-2">
-          {employees.map(emp => (
-            <li key={emp.id} className="flex justify-between items-center text-gray-700 dark:text-gray-300">
-              <span>{emp.name}</span>
-              <button onClick={() => handleDelete('employee', emp.id)} className="text-red-500 hover:text-red-700 text-sm">Delete</button>
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      {/* Add Firm Details */}
-      <div className="bg-gray-50 dark:bg-gray-700 p-6 rounded-lg shadow-md">
-        <h3 className="text-lg font-medium mb-4 text-gray-900 dark:text-gray-100">Add Firm</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-          <Input label="Name" type="text" name="name" value={newFirm.name} onChange={handleFirmChange} />
-          <Input label="Email" type="email" name="email" value={newFirm.email} onChange={handleFirmChange} />
-          <Input label="Phone" type="tel" name="phone" value={newFirm.phone} onChange={handleFirmChange} />
-        </div>
-        <button
-          onClick={handleAddFirm}
-          className="px-4 py-2 bg-emerald-600 text-white font-semibold rounded-lg hover:bg-emerald-700 transition-colors"
-        >
-          Add Firm
-        </button>
-        <h4 className="font-semibold mt-6 mb-2">Existing Firms</h4>
-        <ul className="list-disc list-inside space-y-2">
-          {firms.map(firm => (
-            <li key={firm.id} className="flex justify-between items-center text-gray-700 dark:text-gray-300">
-              <span>{firm.name}</span>
-              <button onClick={() => handleDelete('firm', firm.id)} className="text-red-500 hover:text-red-700 text-sm">Delete</button>
-            </li>
-          ))}
-        </ul>
-      </div>
-      <Modal show={showModal} onClose={() => setShowModal(false)} message={modalMessage} />
-    </div>
-  );
-};
-
-// Reusable Input Component
-const Input = ({ label, name, type, value, onChange, options = [], required = false }) => {
-  const baseClasses = "mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-emerald-500 focus:border-emerald-500 sm:text-sm dark:bg-gray-700 dark:text-gray-200";
-  return (
-    <div>
-      <label htmlFor={name} className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-        {label} {required && <span className="text-red-500">*</span>}
-      </label>
-      {type === 'select' ? (
-        <select id={name} name={name} value={value} onChange={onChange} className={baseClasses}>
-          <option value="" disabled>Select {label}</option>
-          {options.map((opt, index) => (
-            <option key={index} value={opt}>{opt}</option>
-          ))}
-        </select>
-      ) : type === 'textarea' ? (
-        <textarea id={name} name={name} value={value} onChange={onChange} rows="3" className={baseClasses}></textarea>
-      ) : (
-        <input type={type} id={name} name={name} value={value} onChange={onChange} className={baseClasses} />
-      )}
-    </div>
-  );
-};
-
-// Reusable Modal Component
-const Modal = ({ show, onClose, message }) => {
-  if (!show) return null;
-  return (
-    <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex justify-center items-center z-50">
-      <div className="relative p-5 border w-96 shadow-lg rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
-        <div className="mt-3 text-center">
-          <h3 className="text-lg leading-6 font-medium text-red-500">Error</h3>
-          <div className="mt-2 px-7 py-3">
-            <p className="text-sm text-gray-500 dark:text-gray-400">{message}</p>
-          </div>
-          <div className="items-center px-4 py-3">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 bg-emerald-600 text-white text-base font-medium rounded-lg shadow-sm hover:bg-emerald-700 transition-colors w-full"
-            >
-              OK
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-
+    // Render App
     const root = ReactDOM.createRoot(document.getElementById("root"));
     root.render(<App />);
   </script>
